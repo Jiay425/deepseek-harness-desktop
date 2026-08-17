@@ -1,0 +1,18 @@
+# dependencies
+node_modules/
+
+# build output (packaged Electron app, ~400 MB — published via Releases instead)
+dist/
+
+# build caches / artifacts
+.npm-cache/
+.electron-cache/
+staging/
+build/raw/
+
+# smoke-test artifacts
+.smoke-logs/
+.smoke-userdata/
+
+# logs
+*.log

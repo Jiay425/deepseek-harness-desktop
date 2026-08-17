@@ -1,0 +1,21 @@
+{
+  "name": "dsh-desktop",
+  "productName": "DeepSeek Harness Desktop",
+  "version": "1.0.0",
+  "description": "Desktop client for DeepSeek Harness (dsh web) — one-click launch, tray support.",
+  "main": "main.js",
+  "author": "dsh-desktop",
+  "license": "MIT",
+  "scripts": {
+    "start": "electron .",
+    "icons": "powershell -NoProfile -ExecutionPolicy Bypass -File build-icon.ps1 && node pack-ico.mjs",
+    "build": "powershell -NoProfile -ExecutionPolicy Bypass -File build.ps1",
+    "install": "powershell -NoProfile -ExecutionPolicy Bypass -File install.ps1",
+    "smoke": "powershell -NoProfile -ExecutionPolicy Bypass -File smoke.ps1"
+  },
+  "devDependencies": {
+    "electron": "^37.2.0",
+    "electron-packager": "^17.1.2",
+    "rcedit": "^3.1.0"
+  }
+}
