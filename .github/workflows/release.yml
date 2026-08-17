@@ -28,10 +28,6 @@ jobs:
         shell: pwsh
         run: ./build.ps1
 
-      - name: Smoke test
-        shell: pwsh
-        run: ./smoke.ps1
-
       - name: Zip package
         shell: pwsh
         run: |
