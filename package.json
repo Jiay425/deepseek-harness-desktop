@@ -10,7 +10,7 @@
     "start": "electron .",
     "icons": "powershell -NoProfile -ExecutionPolicy Bypass -File build-icon.ps1 && node pack-ico.mjs",
     "build": "powershell -NoProfile -ExecutionPolicy Bypass -File build.ps1",
-    "install": "powershell -NoProfile -ExecutionPolicy Bypass -File install.ps1",
+    "install-app": "powershell -NoProfile -ExecutionPolicy Bypass -File install.ps1",
     "smoke": "powershell -NoProfile -ExecutionPolicy Bypass -File smoke.ps1"
   },
   "devDependencies": {

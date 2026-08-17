@@ -25,7 +25,7 @@
 npm install            # 安装 electron + rcedit（首次会下载 Electron 二进制，较慢）
 npm run icons          # 生成图标（build\icon.ico / icon.png / tray.png）
 npm run build          # 打包到 %USERPROFILE%\dsh-build\DeepSeek Harness Desktop 并镜像到 dist\
-npm run install        # 安装到 %LOCALAPPDATA%\Programs 并创建桌面/开始菜单快捷方式
+npm run install-app    # 安装到 %LOCALAPPDATA%\Programs 并创建桌面/开始菜单快捷方式
 npm run smoke          # 冒烟测试：自动拉起 dsh web(3199)、加载界面、自动退出
 ```
 
