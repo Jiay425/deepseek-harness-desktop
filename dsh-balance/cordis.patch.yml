@@ -1,0 +1,6 @@
+# dsh-balance bundle patch: one loader row for the balance plugin.
+# A dependency that declares dsh.bundle joins the profile layer stack
+# automatically after `dsh plugin --profile web add <this package>`.
+- insert:
+    - id: dsh-balance
+      name: 'dsh-balance'
