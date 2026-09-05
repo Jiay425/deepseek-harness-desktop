@@ -84,6 +84,7 @@ function findNode() {
 let serverChild = null; // set only when WE spawned the server
 let startedByUs = false;
 let quitting = false;
+let windowUrl = WEB_URL; // token-carrying URL when the new dsh mints one
 
 function pingServer(timeoutMs = 1200) {
   return new Promise((resolve) => {
@@ -100,6 +101,44 @@ function pingServer(timeoutMs = 1200) {
       req.destroy();
       resolve(false);
     });
+  });
+}
+
+function spawnDsh(nodeBin, dshBin, args, cwd, stdioMode) {
+  const child = spawn(nodeBin, [dshBin, "web", "--port", String(PORT), ...args], {
+    cwd,
+    windowsHide: true,
+    stdio: stdioMode,
+    env: { ...process.env },
+  });
+  child.startedAt = Date.now();
+  return child;
+}
+
+/** Wire one dsh child's stdout/stderr/exit. Fast-fail on an unsupported flag triggers one retry without it. */
+function attachDshChild(child, nodeBin, dshBin, cwd, stdioMode, noOpenTried) {
+  if (child.stdout) {
+    child.stdout.on("data", (d) => {
+      const text = String(d);
+      log("[dsh] " + text.trim());
+      // capture the authenticated URL the server prints, e.g. http://127.0.0.1:3080/?token=...
+      const m = text.match(/http:\/\/127\.0\.0\.1:\d+\/\?token=[A-Za-z0-9_-]+/);
+      if (m) windowUrl = m[0];
+    });
+    child.stderr.on("data", (d) => log("[dsh:err] " + String(d).trim()));
+  }
+  child.on("exit", (code, signal) => {
+    log(`dsh server exited (code=${code}, signal=${signal})`);
+    if (serverChild === child) serverChild = null;
+    if (startedByUs && !quitting && !SMOKE) {
+      dialog.showErrorBox(APP_NAME, `dsh 服务意外退出 (code=${code})。\n\n请查看日志：${logFile}`);
+    }
+    // an ancient dsh without --no-open fails fast on the unknown flag — retry without it
+    if (!quitting && noOpenTried && code !== null && code !== 0 && Date.now() - child.startedAt < 6000) {
+      log("dsh may not support --no-open — retrying without it.");
+      serverChild = spawnDsh(nodeBin, dshBin, [], cwd, stdioMode);
+      attachDshChild(serverChild, nodeBin, dshBin, cwd, stdioMode, false);
+    }
   });
 }
 
@@ -120,35 +159,29 @@ async function ensureServer() {
   const cwd = app.getPath("home");
   const stdioMode = process.env.DSH_DESKTOP_STDIO === "inherit" ? ["ignore", "inherit", "inherit"] : ["ignore", "pipe", "pipe"];
 
-  log(`spawning: ${nodeBin} ${dshBin} web --port ${PORT}  (cwd=${cwd})`);
-  serverChild = spawn(nodeBin, [dshBin, "web", "--port", String(PORT)], {
-    cwd,
-    windowsHide: true,
-    stdio: stdioMode,
-    env: { ...process.env },
-  });
-
-  if (serverChild.stdout) {
-    serverChild.stdout.on("data", (d) => log("[dsh] " + String(d).trim()));
-    serverChild.stderr.on("data", (d) => log("[dsh:err] " + String(d).trim()));
-  }
-  serverChild.on("exit", (code, signal) => {
-    log(`dsh server exited (code=${code}, signal=${signal})`);
-    if (startedByUs && !quitting && !SMOKE) {
-      dialog.showErrorBox(APP_NAME, `dsh 服务意外退出 (code=${code})。\n\n请查看日志：${logFile}`);
-    }
-    serverChild = null;
-  });
+  // Newer dsh (>= 0.1.2-rc.1) authenticates the Web UI with a per-process token
+  // and opens the default browser unless told otherwise. We spawn with
+  // `--no-open` and load the token URL in our own window instead.
+  const noOpenArgs = ["--no-open"];
+  log(`spawning: ${nodeBin} ${dshBin} web --port ${PORT} --no-open  (cwd=${cwd})`);
+  serverChild = spawnDsh(nodeBin, dshBin, noOpenArgs, cwd, stdioMode);
+  attachDshChild(serverChild, nodeBin, dshBin, cwd, stdioMode, true);
 
   // wait for the port to come up
   const deadline = Date.now() + 90_000;
   while (Date.now() < deadline) {
-    if (serverChild.exitCode !== null) {
-      fatal(`dsh 服务启动失败 (exit code=${serverChild.exitCode})。\n\n请查看日志：${logFile}`);
+    if (serverChild === null || serverChild.exitCode !== null) {
+      fatal(`dsh 服务启动失败 (exit code=${serverChild?.exitCode})。\n\n请查看日志：${logFile}`);
       return { spawned: false };
     }
     if (await pingServer()) {
       log("dsh web is up.");
+      // the token URL usually lands a moment after the port binds; give it time
+      const tokenDeadline = Date.now() + 15_000;
+      while (windowUrl === WEB_URL && Date.now() < tokenDeadline && serverChild !== null && serverChild.exitCode === null) {
+        await new Promise((r) => setTimeout(r, 200));
+      }
+      log(`window url: ${windowUrl}`);
       return { spawned: true };
     }
     await new Promise((r) => setTimeout(r, 700));
@@ -162,6 +195,7 @@ async function ensureServer() {
 // ---------------------------------------------------------------------------
 let mainWindow = null;
 let tray = null;
+let lastLoadedUrl = null;
 
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -205,9 +239,31 @@ function createWindow() {
     mainWindow = null;
   });
 
-  mainWindow.loadURL(WEB_URL);
+  lastLoadedUrl = windowUrl;
+  mainWindow.loadURL(windowUrl);
   mainWindow.webContents.on("did-finish-load", () => {
     log("window loaded.");
+    // Connecting to an already-running server with no auth cookie yet lands on the
+    // plain 401 page ("dsh web authentication required…") — surface clear guidance.
+    if (!SMOKE && windowUrl === WEB_URL) {
+      mainWindow.webContents
+        .executeJavaScript("document.body ? document.body.innerText.slice(0, 200) : ''")
+        .then((text) => {
+          if (text && /authentication required/i.test(text)) {
+            log("auth required while connecting to an existing server (no cookie in this window yet).");
+            dialog.showMessageBox(mainWindow, {
+              type: "warning",
+              title: APP_NAME,
+              message: "无法自动进入已运行的服务",
+              detail:
+                "3080 端口已有另一个 dsh 服务在运行，而本窗口还没有它的授权令牌。\n\n" +
+                "解决办法：退出本应用后重新打开（由它自己启动服务即可正常使用）；" +
+                "或先在有授权的浏览器里打开一次该服务。",
+            });
+          }
+        })
+        .catch(() => {});
+    }
     if (SMOKE) {
       log("SMOKE_OK");
       setTimeout(() => app.quit(), 1500);
@@ -225,6 +281,11 @@ function showMainWindow() {
     return;
   }
   if (mainWindow.isMinimized()) mainWindow.restore();
+  // a hidden-period server restart mints a new token URL — refresh to it
+  if (windowUrl !== lastLoadedUrl) {
+    lastLoadedUrl = windowUrl;
+    mainWindow.loadURL(windowUrl);
+  }
   mainWindow.show();
   mainWindow.focus();
 }
@@ -237,7 +298,7 @@ function createTray() {
     tray.setToolTip(APP_NAME);
     const menu = Menu.buildFromTemplate([
       { label: "打开 DeepSeek Harness", click: showMainWindow },
-      { label: "在浏览器中打开", click: () => shell.openExternal(WEB_URL) },
+      { label: "在浏览器中打开", click: () => shell.openExternal(windowUrl) },
       { type: "separator" },
       { label: "退出", click: () => { quitting = true; app.quit(); } },
     ]);
@@ -277,7 +338,7 @@ if (!gotLock) {
     startedByUs = spawned;
     createWindow();
     createTray();
-    log(`ready. url=${WEB_URL} spawned=${spawned}`);
+    log(`ready. url=${windowUrl} spawned=${spawned}`);
     if (spawned && !SMOKE) {
       // if the server dies while the window is hidden, bring it back up
       const watch = setInterval(async () => {
