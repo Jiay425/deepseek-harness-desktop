@@ -1,19 +1,20 @@
 # Installs DeepSeek Harness Desktop:
 #   1. copies the packaged app to %LOCALAPPDATA%\Programs\DeepSeek Harness Desktop
+#      (or the -TargetDir you pass, e.g. a folder on another drive)
 #   2. creates a Desktop shortcut (one-click launch)
 #   3. creates a Start Menu shortcut
 #
 # Usage:
-#   .\install.ps1 [-SourceDir <packaged app dir>]
+#   .\install.ps1 [-SourceDir <packaged app dir>] [-TargetDir <install dir>]
 param(
-    [string]$SourceDir = (Join-Path $env:USERPROFILE "dsh-build\DeepSeek Harness Desktop")
+    [string]$SourceDir = (Join-Path $env:USERPROFILE "dsh-build\DeepSeek Harness Desktop"),
+    [string]$TargetDir = (Join-Path $env:LOCALAPPDATA "Programs\DeepSeek Harness Desktop")
 )
 
 $ErrorActionPreference = "Stop"
 $appName = "DeepSeek Harness"
 $exeName = "DeepSeek Harness Desktop.exe"
-$targetDir = Join-Path $env:LOCALAPPDATA "Programs\DeepSeek Harness Desktop"
-$exe = Join-Path $targetDir $exeName
+$exe = Join-Path $TargetDir $exeName
 
 if (-not (Test-Path (Join-Path $SourceDir $exeName))) {
     Write-Error "Packaged app not found: $SourceDir (run: npm run pack first)"
@@ -21,11 +22,11 @@ if (-not (Test-Path (Join-Path $SourceDir $exeName))) {
 }
 
 # ---- 1. copy app ----
-if (Test-Path $targetDir) {
-    Remove-Item $targetDir -Recurse -Force
+if (Test-Path $TargetDir) {
+    Remove-Item $TargetDir -Recurse -Force
 }
-Copy-Item $SourceDir $targetDir -Recurse -Force
-Write-Output "installed to: $targetDir"
+Copy-Item $SourceDir $TargetDir -Recurse -Force
+Write-Output "installed to: $TargetDir"
 
 # ---- 2. shortcuts ----
 $shell = New-Object -ComObject WScript.Shell
